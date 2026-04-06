@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# Data (large — do not track)
+data/
+Animals_with_Attributes2/
+
+# Training artifacts
+checkpoints/
+logs/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+paper/main.log
+paper/main.out
+paper2/main.log
+paper2/main.out
+
+# Keep only PDF figures, not PNG duplicates
+paper/figures/*.png
+paper2/figures/*.png
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store

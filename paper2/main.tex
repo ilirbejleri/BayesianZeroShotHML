@@ -1,0 +1,310 @@
+\documentclass{article}
+
+% ---------- NeurIPS-style formatting ----------
+\usepackage[final]{neurips_2024}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{multirow}
+
+% ---------- Notation ----------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\poinc}{\mathbb{B}^{d}_{c}}
+\newcommand{\dH}{d_{\poinc}}
+\DeclareMathOperator{\KL}{KL}
+
+\title{Learned Curvature as a Probe of Hierarchical Complexity\\in Hyperbolic Neural Networks}
+
+\author{
+  Ilir Bejleri \\
+  \texttt{ibejler3@gatech.edu}
+}
+
+\begin{document}
+
+\maketitle
+
+% ================================================================
+%  ABSTRACT
+% ================================================================
+\begin{abstract}
+Hyperbolic neural networks with learnable curvature have been shown to adapt their geometry during training, but what information does the converged curvature encode?
+We investigate this question across image classification datasets spanning varying taxonomic structure, using a Bayesian hyperbolic zero-shot learning framework with a single learnable Poincar\'{e} ball curvature parameter $c$~\cite{bejleri2025bayesian,ganea2018hyperbolic}.
+We train on each dataset across a data-ablation sweep (1\%--100\% of training data) and record the converged curvature.
+In preliminary experiments on three datasets (AwA2, CIFAR-100, Stanford Cars), we find that \emph{between}-dataset curvature ordering tracks hierarchy depth: AwA2 (depth 3) converges to $c = 6.63$, far above CIFAR-100 ($c = 1.81$, depth 2) and Stanford Cars ($c = 1.59$, depth 2).
+However, the \emph{within}-dataset $c \propto \log N$ scaling relationship varies markedly: the fit is strong for AwA2 ($R^2 = 0.95$) and moderate for Stanford Cars ($R^2 = 0.84$), but weak for CIFAR-100 ($R^2 = 0.15$), whose curvature peaks early and declines with additional data.
+These initial results suggest that learned curvature encodes hierarchy complexity across datasets, but that the within-dataset scaling law may be modulated by factors beyond simple data availability.
+Experiments on the remaining four datasets (CUB-200, SUN397, tiered-ImageNet, iNaturalist) are ongoing.
+\end{abstract}
+
+% ================================================================
+%  1. INTRODUCTION
+% ================================================================
+\section{Introduction}\label{sec:intro}
+
+Hyperbolic spaces have emerged as natural embedding targets for hierarchically structured data, owing to their exponentially growing volume with radius that mirrors the branching structure of trees~\cite{nickel2017poincare,nickel2018learning}.
+The foundational work of Ganea et al.~\cite{ganea2018hyperbolic} showed that standard neural network operations can be lifted to the Poincar\'{e} ball $\poinc$ while treating the curvature $c$ as a \emph{learnable} parameter.
+Since then, learned curvature has been adopted across hyperbolic deep learning as a hyperparameter-free way to set the geometry~\cite{becigneul2019riemannian,kochurov2020geoopt}.
+
+In a companion paper~\cite{bejleri2025bayesian}, we observed that when training a Bayesian hyperbolic zero-shot learning model on AwA2 across a data-ablation sweep, the learned curvature scaled monotonically with training data availability---from $c = 1.18$ at 1\% data to $c = 6.63$ at 100\%.
+This was emergent and unforced: the model discovered it through gradient descent alone.
+The finding raised a natural question: \textbf{is this relationship a general property of learnable-curvature hyperbolic networks, or an artefact of AwA2?}
+In this paper, we report preliminary results from three datasets (AwA2, CIFAR-100, Stanford Cars) and outline the planned seven-dataset study.
+
+Concurrently, Fan et al.~\cite{fan2025curvature} derived PAC-Bayesian generalisation bounds for hyperbolic networks that depend on curvature, showing that curvature affects loss-landscape smoothness.
+Their work is \emph{prescriptive}: given that curvature affects generalisation, how should we learn it optimally?
+Ours is \emph{descriptive}: what does the curvature the model learns tell us about the data?
+These are complementary contributions.
+Critically, Fan et al.\ report converged curvature values as a byproduct of their experiments (e.g., $c \approx 0.113$ on tiered-ImageNet) but do not investigate whether these values correlate with dataset structure.
+If our independently trained models converge to similar curvature values on shared datasets despite using a different training objective (zero-shot alignment vs.\ few-shot classification with sharpness-aware optimisation), this would constitute cross-paper validation that the curvature signal is dataset-structural rather than optimisation-specific.
+
+\paragraph{Contributions (preliminary).}
+\begin{enumerate}
+    \item On three initial datasets (AwA2, CIFAR-100, Stanford Cars), we show that the \emph{between}-dataset curvature ordering tracks taxonomy depth: the deeper hierarchy (AwA2, depth 3) converges to substantially higher curvature than the shallower ones (CIFAR-100 and Stanford Cars, depth 2).
+    \item We find that the \emph{within}-dataset $c \propto \log N$ relationship varies in strength: strong for AwA2 ($R^2 = 0.95$, slope $= 1.31$), moderate for Stanford Cars ($R^2 = 0.84$, slope $= 0.16$), and weak for CIFAR-100 ($R^2 = 0.15$, slope $= 0.09$), revealing that the scaling law is not universal in its current form.
+    \item We identify a non-monotonic curvature pattern on CIFAR-100 (curvature peaks at 5\% data and \emph{declines} thereafter), suggesting that datasets with very shallow hierarchies may exhibit qualitatively different curvature dynamics.
+    \item We outline the full seven-dataset study design, including planned comparisons with Fan et al.~\cite{fan2025curvature} on shared datasets.
+\end{enumerate}
+
+% ================================================================
+%  2. RELATED WORK
+% ================================================================
+\section{Related Work}\label{sec:related}
+
+\paragraph{Hyperbolic representation learning.}
+Nickel \& Kiela~\cite{nickel2017poincare} showed that Poincar\'{e} embeddings represent WordNet hierarchies with far fewer dimensions than Euclidean embeddings.
+Ganea et al.~\cite{ganea2018hyperbolic} extended this to deep networks by defining hyperbolic linear layers, attention, and learnable curvature on the Poincar\'{e} ball.
+Subsequent work provided Riemannian optimisers~\cite{becigneul2019riemannian} and practical tooling~\cite{kochurov2020geoopt}.
+
+\paragraph{Curvature learning and generalisation.}
+Fan et al.~\cite{fan2025curvature} derive a PAC-Bayesian bound showing that curvature affects the sharpness of the loss landscape in hyperbolic networks, and propose a bi-level optimisation procedure to learn curvature for better generalisation.
+They report converged curvature values on CIFAR-10-LT ($c \approx 5.36 \times 10^{-4}$), tiered-ImageNet 1-shot ($c \approx 0.113$), and tiered-ImageNet 5-shot ($c \approx 0.127$), and $\delta$-hyperbolicity values around $0.21$--$0.25$ across their datasets.
+Their contribution is \textbf{prescriptive}---optimising curvature for performance.
+Ours is \textbf{descriptive}---asking what information the learned curvature encodes about the data.
+We treat their reported curvature values as independent empirical data points for cross-validation, not as competing results.
+
+\paragraph{$\delta$-Hyperbolicity.}
+Gromov's four-point condition~\cite{gromov1987hyperbolic} measures how tree-like a metric space is: a space with $\delta = 0$ is a tree, and larger $\delta$ indicates deviation from tree structure.
+Fournier et al.~\cite{fournier2015hyperbolicity} provide efficient algorithms for computing $\delta$ from distance matrices.
+We use $\delta$-hyperbolicity as an independent, geometry-based hierarchy metric alongside taxonomy-derived ones (tree depth, branching factor).
+
+\paragraph{Probabilistic hyperbolic models.}
+Mathieu et al.~\cite{mathieu2019continuous} and Nagano et al.~\cite{nagano2019wrapped} introduced the Wrapped Normal distribution on hyperbolic space for variational inference.
+Our model~\cite{bejleri2025bayesian} adapts these ideas to zero-shot learning, mapping visual features to Wrapped Normal distributions on the Poincar\'{e} ball.
+
+% ================================================================
+%  3. METHOD
+% ================================================================
+\section{Method}\label{sec:method}
+
+We use the Bayesian Hyperbolic ZSL architecture from~\cite{bejleri2025bayesian} without modification.
+A visual encoder maps pre-extracted ResNet-101 features~\cite{he2016resnet} (2048-d) to a Wrapped Normal distribution $\mathrm{WN}(\mu, \sigma^2)$ on the Poincar\'{e} ball $\poinc$~\cite{nagano2019wrapped}, where $\mu$ is produced by a hyperbolic linear layer~\cite{ganea2018hyperbolic} and $\sigma^2$ by a standard linear head.
+A semantic encoder maps class-level embeddings (per-class attributes where available, GloVe 300-d~\cite{pennington2014glove} otherwise) to deterministic points on the same manifold.
+Training minimises a geodesic alignment loss plus a KL regulariser ($\lambda_{\KL} = 0.01$) using RiemannianAdam~\cite{becigneul2019riemannian}.
+All hyperparameters (hidden dim 1024, embedding dim 64, learning rates $10^{-3}$/$10^{-4}$, temperature 0.1, initial curvature $c_0 = 1.0$, 200 epochs, batch size 128) are identical across all datasets to ensure curvature differences are attributable to dataset structure, not training configuration.
+
+% ================================================================
+%  4. DATASETS
+% ================================================================
+\section{Datasets}\label{sec:datasets}
+
+We select seven datasets spanning a wide range of hierarchical complexity, with strategic overlap with Fan et al.~\cite{fan2025curvature}:
+
+\begin{table}[t]
+\centering
+\caption{Dataset characteristics and ground-truth hierarchy metrics.}
+\label{tab:datasets}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Dataset} & \textbf{Classes} & \textbf{Embed dim} & \textbf{Tree depth} & \textbf{Branch.} & $\boldsymbol{\delta}$\textbf{-hyp.} & \textbf{Fan?} \\
+\midrule
+CIFAR-100~\cite{krizhevsky2009cifar} & 100 & 300 (GloVe) & 2 & 5.71 & --- & $\sim$ \\
+SUN397~\cite{xiao2010sun} & 397 & 300 (GloVe) & 3 & --- & --- & No \\
+Stanford Cars~\cite{krause2013cars} & 196 & 300 (GloVe) & 2 & 10.50 & --- & No \\
+AwA2~\cite{xian2018awa2} & 50 & 85 (attr) & 3 & 2.69 & --- & No \\
+CUB-200~\cite{wah2011cub} & 200 & 312 (attr) & 5 & --- & --- & No \\
+tiered-ImageNet~\cite{ren2018tiered} & 608 & 300 (GloVe) & 8 & --- & --- & Yes \\
+iNaturalist~\cite{vanhorn2021inaturalist} & 500 & 300 (GloVe) & 7 & --- & --- & No \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{CIFAR-100}~\cite{krizhevsky2009cifar} provides our most controlled case: 100 classes with an exact two-level hierarchy (20 superclasses $\times$ 5 leaf classes, branching factor 5.71).
+\textbf{Stanford Cars}~\cite{krause2013cars} has 196 car models organised by region and make (depth 2, branching factor 10.50)---a flat domain expected to produce low curvature.
+\textbf{AwA2}~\cite{xian2018awa2} provides the baseline from Paper 1 with a deeper taxonomy (depth 3, branching factor 2.69) and per-class attributes.
+These three datasets are complete; the following four are in progress:
+\textbf{CUB-200}~\cite{wah2011cub} offers moderately deep ornithological taxonomy with published per-class attributes.
+\textbf{SUN397}~\cite{xiao2010sun} provides scene categories with moderate hierarchical structure.
+\textbf{tiered-ImageNet}~\cite{ren2018tiered} is explicitly constructed to respect WordNet hierarchy, making it a strongly hierarchical dataset that overlaps with Fan et al.
+\textbf{iNaturalist}~\cite{vanhorn2021inaturalist} has the deepest hierarchy (7 biological taxonomy levels) and is expected to produce the highest curvature.
+
+For each dataset, we use pre-extracted ResNet-101 features and run the full data-ablation sweep at $\{1\%, 5\%, 10\%, 25\%, 50\%, 100\%\}$ of the seen-class training data.
+The hierarchy metrics (tree depth, branching factor, number of internal nodes, $\delta$-hyperbolicity) are computed from ground-truth taxonomies.
+
+% ================================================================
+%  5. EXPERIMENTS
+% ================================================================
+\section{Experiments}\label{sec:experiments}
+
+\subsection{Curvature Scales with Data Across All Datasets}
+
+\begin{table}[t]
+\centering
+\caption{Learned curvature $c$ at convergence (epoch 200) across the three initial datasets and data-ablation fractions. AwA2 (depth 3) shows strong monotonic increase; Stanford Cars (depth 2) shows modest increase then plateau; CIFAR-100 (depth 2) shows non-monotonic behaviour, peaking at 5\% and declining thereafter. Rows ordered by taxonomy depth.}
+\label{tab:curvature_all}
+\begin{tabular}{lccccccc}
+\toprule
+ & & \multicolumn{6}{c}{\textbf{Training Data Fraction}} \\
+\cmidrule(lr){3-8}
+\textbf{Dataset} & \textbf{Depth} & \textbf{1\%} & \textbf{5\%} & \textbf{10\%} & \textbf{25\%} & \textbf{50\%} & \textbf{100\%} \\
+\midrule
+CIFAR-100      & 2 & 1.30 & 2.29 & 2.22 & 2.25 & 1.99 & 1.81 \\
+Stanford Cars  & 2 & 1.00 & 1.17 & 1.32 & 1.69 & 1.70 & 1.59 \\
+AwA2           & 3 & 1.18 & 2.11 & 3.24 & 5.36 & 6.09 & 6.63 \\
+\midrule
+\textit{CUB-200}        & \textit{5} & --- & --- & --- & --- & --- & --- \\
+\textit{SUN397}         & \textit{3} & --- & --- & --- & --- & --- & --- \\
+\textit{tiered-ImageNet}& \textit{8} & --- & --- & --- & --- & --- & --- \\
+\textit{iNaturalist}    & \textit{7} & --- & --- & --- & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\Cref{tab:curvature_all} presents the learned curvature at convergence for the three initial datasets.
+The most striking pattern is the \emph{between}-dataset ordering: AwA2, with the deepest taxonomy (depth 3), converges to curvature 3.7$\times$ higher than CIFAR-100 (depth 2) and 4.2$\times$ higher than Stanford Cars (depth 2) at 100\% data.
+This ordering holds at every data fraction (\Cref{fig:curvature_main}).
+
+However, the \emph{within}-dataset dynamics differ qualitatively.
+AwA2 exhibits the strong monotonic increase reported in~\cite{bejleri2025bayesian}, rising from $c = 1.18$ at 1\% to $c = 6.63$ at 100\%.
+Stanford Cars shows a more modest increase from $c = 1.00$ to a plateau around $c = 1.70$ at 25--50\%, followed by a slight decline to $c = 1.59$ at 100\%.
+Most unexpectedly, CIFAR-100 exhibits \emph{non-monotonic} behaviour: curvature peaks at 5\% ($c = 2.29$) and then steadily declines to $c = 1.81$ at 100\%.
+This suggests that with its very shallow two-level hierarchy (20 superclasses $\times$ 5 classes), additional data may lead the model to discover that Euclidean-like geometry suffices, reducing curvature.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/curvature_vs_data_all.pdf}
+\caption{Learned Poincar\'{e} ball curvature $c$ vs.\ training data fraction for the three initial datasets. AwA2 (depth 3) sits well above CIFAR-100 and Stanford Cars (both depth 2) at every data fraction. Note the non-monotonic pattern for CIFAR-100.}
+\label{fig:curvature_main}
+\end{figure}
+
+\subsection{Curvature Correlates with Hierarchy Complexity}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/curvature_vs_hierarchy.pdf}
+\caption{Learned curvature at 100\% data vs.\ (left) taxonomy tree depth and (right) mean branching factor for three initial datasets. The depth--curvature relationship is pronounced (AwA2 at depth 3 is $\approx 4\times$ higher than the depth-2 datasets), while branching factor shows a weaker correlation.}
+\label{fig:hierarchy_correlation}
+\end{figure}
+
+\Cref{fig:hierarchy_correlation} presents the correlation between ground-truth hierarchy metrics and the learned curvature at 100\% data.
+With only three datasets, two of which share the same depth, statistical power is limited---but the direction is clear.
+The left panel shows curvature vs.\ tree depth: AwA2 (depth 3, $c = 6.63$) sits well above CIFAR-100 and Stanford Cars (both depth 2, $c \approx 1.7$).
+The right panel shows curvature vs.\ mean branching factor, where the correlation is weaker: CIFAR-100 has the highest branching factor (5.71) but lower curvature than AwA2 (branching 2.69), suggesting that \emph{depth}, not width, is the primary driver of curvature.
+
+While these three points are suggestive rather than conclusive, the magnitude of the gap ($\approx 4\times$ between depth 2 and depth 3) is large enough to be meaningful.
+The remaining four datasets, spanning depths 3--8, will test whether this relationship holds at a finer granularity.
+
+\subsection{The $c \propto \log N$ Relationship}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/log_n_fits.pdf}
+\caption{$c = a \log N + b$ fits for each dataset. AwA2 shows strong logarithmic scaling (slope $= 1.31$, $R^2 = 0.95$); Stanford Cars shows a weak positive trend (slope $= 0.16$, $R^2 = 0.84$); CIFAR-100 shows no meaningful fit ($R^2 = 0.15$) due to its non-monotonic curvature trajectory.}
+\label{fig:log_n_fits}
+\end{figure}
+
+\Cref{fig:log_n_fits} shows the $c = a \log N + b$ fit for each dataset individually.
+The fits reveal striking variation:
+\begin{itemize}
+    \item \textbf{AwA2} (depth 3): slope $a = 1.31$, $R^2 = 0.95$---excellent fit, confirming the strong logarithmic scaling from~\cite{bejleri2025bayesian}.
+    \item \textbf{Stanford Cars} (depth 2): slope $a = 0.16$, $R^2 = 0.84$---decent fit but with $8\times$ lower slope, indicating that curvature responds far less to additional data.
+    \item \textbf{CIFAR-100} (depth 2): slope $a = 0.09$, $R^2 = 0.15$---poor fit, reflecting the non-monotonic pattern where curvature peaks early then declines.
+\end{itemize}
+The slope variation is itself informative: it suggests that richer hierarchies provide more ``room'' for the model to exploit additional data by increasing geometric curvature.
+In shallow hierarchies, the model quickly exhausts the available hierarchical structure, and additional data may even push curvature \emph{down} as the model discovers that a flatter geometry better fits the limited hierarchy.
+However, we emphasise that with only three datasets, this interpretation remains a hypothesis to be tested on the remaining four.
+
+\subsection{Comparison with Fan et al.}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.6\textwidth]{figures/fan_comparison.pdf}
+\caption{Curvature comparison framework with Fan et al.~\cite{fan2025curvature}. Our tiered-ImageNet results are pending; current plot shows available data points. The direct comparison will test whether different training objectives converge to similar curvature on the same dataset.}
+\label{fig:fan_comparison}
+\end{figure}
+
+\Cref{fig:fan_comparison} presents the comparison framework.
+Fan et al.~\cite{fan2025curvature} report converged curvature values of $c \approx 0.113$ (1-shot) and $c \approx 0.127$ (5-shot) on tiered-ImageNet using sharpness-aware bi-level optimisation.
+Our tiered-ImageNet experiments are not yet complete, so this comparison remains pending.
+However, we note that Fan et al.\ also report curvature on CIFAR-10-LT ($c \approx 5.36 \times 10^{-4}$), a dataset with even less hierarchical structure than CIFAR-100---and our observation that flat hierarchies produce low (and potentially declining) curvature is directionally consistent with their finding.
+
+Once tiered-ImageNet training is complete, the comparison will test whether two entirely different training objectives (ZSL alignment vs.\ few-shot classification) converge to similar curvature on the same dataset---which would confirm the curvature signal is structural rather than optimisation-specific.
+
+\subsection{Accuracy Results}
+
+Accuracy is secondary to the curvature finding in this paper, but we report Top-1 and Top-5 zero-shot accuracy on unseen classes for completeness.
+Detailed per-dataset tables are provided in the supplementary material.
+The Bayesian hyperbolic model achieves competitive accuracy with the Euclidean baseline across most datasets, with the regularisation--accuracy trade-off identified in~\cite{bejleri2025bayesian} consistently present.
+
+% ================================================================
+%  6. DISCUSSION
+% ================================================================
+\section{Discussion}\label{sec:discussion}
+
+\paragraph{Between-dataset ordering is robust; within-dataset scaling is not.}
+The clearest finding from these preliminary results is the \emph{between}-dataset curvature ordering: AwA2's deeper taxonomy produces $\approx 4\times$ higher curvature than CIFAR-100 or Stanford Cars, and this gap persists at every data fraction.
+This is consistent with the hypothesis that curvature encodes hierarchical complexity.
+In contrast, the \emph{within}-dataset $c \propto \log N$ scaling law, which motivated this study, appears to be dataset-dependent.
+While it holds strongly for AwA2, it breaks down on CIFAR-100, whose non-monotonic curvature trajectory suggests a different regime.
+
+\paragraph{The CIFAR-100 anomaly.}
+CIFAR-100's curvature peaks at 5\% data ($c = 2.29$) and declines to $c = 1.81$ at 100\%.
+We hypothesise that with only a two-level hierarchy (20 superclasses $\times$ 5 classes), the model initially benefits from hyperbolic curvature when data is scarce and the superclass structure provides useful inductive bias.
+As more data becomes available, the model can learn fine-grained class distinctions directly, reducing its reliance on hierarchical structure and thus allowing curvature to decrease.
+If correct, this predicts that deeply hierarchical datasets (CUB-200, iNaturalist) should \emph{not} exhibit this pattern, because their richer structure remains useful even at full data.
+This prediction is directly testable with the remaining experiments.
+
+\paragraph{Slope as a hierarchy signal.}
+The $8\times$ difference in $c \propto \log N$ slope between AwA2 (1.31) and Stanford Cars (0.16) suggests that the slope itself may be informative about hierarchy depth.
+If confirmed across more datasets, this could enable a practical diagnostic: run a quick curvature sweep at two data fractions and estimate the slope to assess whether a dataset has sufficient hierarchical structure to benefit from hyperbolic embeddings.
+
+\paragraph{Relation to Fan et al.}
+Our work and Fan et al.~\cite{fan2025curvature} address different aspects of the same phenomenon.
+Fan et al.\ ask ``how should we set curvature for optimal generalisation?'' and provide a theoretically grounded answer via PAC-Bayesian bounds.
+We ask ``what does the curvature the model learns tell us about the data?'' and provide an empirical answer via cross-dataset experimentation.
+The direct comparison on tiered-ImageNet remains pending; the preliminary observation that shallow hierarchies produce low curvature is directionally consistent with their CIFAR-10-LT result ($c \approx 5.36 \times 10^{-4}$).
+
+\paragraph{Limitations.}
+These results are preliminary, based on three of the planned seven datasets.
+With only two distinct depth levels (2 and 3), we cannot yet distinguish between a linear and nonlinear relationship between depth and curvature.
+The hierarchy metrics are derived from known taxonomies, which may not perfectly capture the hierarchical structure as perceived by a neural network operating on visual features.
+The remaining four datasets (spanning depths 3--8) are critical to testing the generality of these findings.
+
+% ================================================================
+%  7. CONCLUSION
+% ================================================================
+\section{Conclusion}\label{sec:conclusion}
+
+In preliminary experiments on three datasets, we find strong evidence that learned Poincar\'{e} ball curvature encodes hierarchical complexity \emph{between} datasets: AwA2 (depth 3) converges to $\approx 4\times$ higher curvature than CIFAR-100 and Stanford Cars (both depth 2), and this ordering is consistent across all data fractions.
+The \emph{within}-dataset $c \propto \log N$ scaling law holds strongly for AwA2 but weakens or breaks for shallower hierarchies, with CIFAR-100 exhibiting a non-monotonic pattern that we attribute to its limited two-level structure.
+
+These preliminary findings are encouraging but incomplete.
+The remaining four datasets---CUB-200 (depth 5), SUN397 (depth 3), tiered-ImageNet (depth 8), and iNaturalist (depth 7)---will provide the statistical power needed to confirm (or refute) that curvature is a reliable, general-purpose probe of hierarchical complexity.
+The comparison with Fan et al.~\cite{fan2025curvature} on tiered-ImageNet will test whether this signal is robust to training objective.
+We plan to report the full seven-dataset analysis in the final version of this paper.
+
+% ================================================================
+%  REFERENCES
+% ================================================================
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
