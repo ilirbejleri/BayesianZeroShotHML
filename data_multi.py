@@ -137,9 +137,18 @@ def get_dataloaders(
     if ablation_fraction < 1.0:
         train_sub = ablate_training_set(train_sub, ablation_fraction, seed=seed)
 
+    # Handle small ablations: clamp batch size to dataset size so we never
+    # produce zero batches per epoch, and only drop the last partial batch
+    # when we have more than one full batch worth of data.
+    n_train = len(train_sub)
+    effective_bs = min(batch_size, n_train)
+    if effective_bs < batch_size:
+        print(f"[get_dataloaders] Small ablation: clamping batch_size "
+              f"{batch_size} -> {effective_bs} (n_train={n_train})")
     train_loader = DataLoader(
-        train_sub, batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=True, drop_last=True,
+        train_sub, batch_size=effective_bs, shuffle=True,
+        num_workers=num_workers, pin_memory=True,
+        drop_last=(n_train > batch_size),
     )
     test_loader = DataLoader(
         test_sub, batch_size=batch_size, shuffle=False,

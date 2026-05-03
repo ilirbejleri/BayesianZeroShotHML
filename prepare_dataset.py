@@ -354,27 +354,72 @@ def prepare_sun397(
     num_workers: int = 4,
     glove: Optional[Dict] = None,
 ) -> None:
-    """Prepare SUN397 with ResNet-101 features and GloVe embeddings."""
+    """Prepare SUN397 with ResNet-101 features and GloVe embeddings.
+
+    Supports two layouts in `data/sun397_raw/`:
+      (a) HuggingFace parquet format: `data/*.parquet` with `image` + `label` columns
+          (e.g. https://huggingface.co/datasets/1aurent/SUN397)
+      (b) Standard torchvision SUN397 layout (auto-download, currently broken upstream).
+    """
     out_dir = Path(data_root) / "sun397"
+    raw_dir = Path(data_root) / "sun397_raw"
 
     if (out_dir / "features.npy").exists():
         print("[sun397] Already prepared, skipping.")
         return
 
-    try:
-        from torchvision.datasets import SUN397 as SUN397Dataset
-    except ImportError:
-        raise ImportError("SUN397 requires torchvision >= 0.13")
-
-    raw_dir = Path(data_root) / "sun397_raw"
     print("=== Preparing SUN397 ===")
 
-    dataset = SUN397Dataset(str(raw_dir), download=True, transform=TRANSFORM)
+    parquet_dir = raw_dir / "data"
+    parquet_files = sorted(parquet_dir.glob("*.parquet")) if parquet_dir.exists() else []
 
-    features, labels = extract_features(dataset, batch_size, device, num_workers)
+    if parquet_files:
+        # HuggingFace parquet layout
+        print(f"  Found {len(parquet_files)} parquet files at {parquet_dir}")
+        import pyarrow.parquet as pq
+        from io import BytesIO
+        from PIL import Image
 
-    # Get class names from the dataset
-    class_names = [str(c).replace("/", "_").lstrip("_") for c in dataset.classes]
+        # Read class names from first parquet's schema metadata, or fall back to
+        # the README class list. Easiest: use HF datasets to access ClassLabel.
+        from datasets import load_dataset
+        ds = load_dataset(
+            "parquet",
+            data_files=[str(p) for p in parquet_files],
+            split="train",
+        )
+        # The label feature carries the names
+        class_names_raw = ds.features["label"].names  # e.g. "/a/abbey"
+        class_names = [c.replace("/", "_").lstrip("_") for c in class_names_raw]
+
+        class HFParquetImageDataset(Dataset):
+            def __init__(self, hf_ds, transform):
+                self.ds = hf_ds
+                self.transform = transform
+
+            def __len__(self):
+                return len(self.ds)
+
+            def __getitem__(self, idx):
+                row = self.ds[idx]
+                img = row["image"]
+                if not isinstance(img, Image.Image):
+                    img = Image.open(BytesIO(img["bytes"])) if isinstance(img, dict) else Image.fromarray(img)
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+                return self.transform(img), int(row["label"])
+
+        img_dataset = HFParquetImageDataset(ds, TRANSFORM)
+        features, labels = extract_features(img_dataset, batch_size, device, num_workers)
+    else:
+        # Fall back to torchvision (will likely 404)
+        try:
+            from torchvision.datasets import SUN397 as SUN397Dataset
+        except ImportError:
+            raise ImportError("SUN397 requires torchvision >= 0.13")
+        dataset = SUN397Dataset(str(raw_dir), download=True, transform=TRANSFORM)
+        features, labels = extract_features(dataset, batch_size, device, num_workers)
+        class_names = [str(c).replace("/", "_").lstrip("_") for c in dataset.classes]
 
     if glove is None:
         glove = load_glove()
@@ -540,6 +585,15 @@ def prepare_stanford_cars(
 # tiered-ImageNet
 # ===================================================================
 
+def _wnid_to_word(wnid: str) -> str:
+    """Convert an ImageNet wnid (e.g. 'n01440764') to its first WordNet lemma."""
+    from nltk.corpus import wordnet as wn
+    pos = wnid[0]
+    offset = int(wnid[1:])
+    synset = wn.synset_from_pos_and_offset(pos, offset)
+    return synset.lemmas()[0].name().replace("_", " ").lower()
+
+
 def prepare_tiered_imagenet(
     data_root: str = "data",
     device: str = "cuda",
@@ -549,12 +603,14 @@ def prepare_tiered_imagenet(
 ) -> None:
     """Prepare tiered-ImageNet.
 
-    Expects pre-processed pkl/npz files or an ImageFolder structure at
-    data/tiered_imagenet_raw/.  The standard source is:
-      https://github.com/yaoyao-liu/mini-imagenet-tools (tiered variant)
+    Expects ImageFolder structure at:
+      data/tiered_imagenet_raw/{train,val,test}/<wnid>/<image>.jpg
+    where train/val/test classes are DISJOINT (canonical 351/97/160 split).
 
-    If pre-extracted features exist as .npz, loads directly.
-    Otherwise extracts from images.
+    Class names are wnids (e.g. n01440764) which are converted to human-readable
+    words via WordNet for GloVe embedding.
+
+    The natural ZSL split is used: train classes = seen, test classes = unseen.
     """
     raw_dir = Path(data_root) / "tiered_imagenet_raw"
     out_dir = Path(data_root) / "tiered_imagenet"
@@ -564,68 +620,69 @@ def prepare_tiered_imagenet(
         return
 
     print("=== Preparing tiered-ImageNet ===")
+    from torchvision.datasets import ImageFolder
 
-    # Check for pre-extracted numpy files (common distribution format)
-    npz_train = raw_dir / "train_features.npz"
-    npz_test = raw_dir / "test_features.npz"
+    # 1) Discover all wnids across all splits, build a global wnid -> idx map
+    splits_present = []
+    all_wnids = []
+    for split in ["train", "val", "test"]:
+        split_dir = raw_dir / split
+        if not split_dir.exists():
+            continue
+        wnids = sorted([d.name for d in split_dir.iterdir() if d.is_dir()])
+        all_wnids.extend(wnids)
+        splits_present.append((split, split_dir, wnids))
 
-    if npz_train.exists() and npz_test.exists():
-        print("  Loading from pre-extracted .npz files")
-        train_data = np.load(npz_train)
-        test_data = np.load(npz_test)
-        features = np.concatenate([train_data["features"], test_data["features"]])
-        labels = np.concatenate([train_data["labels"], test_data["labels"]])
-        if "class_names" in train_data:
-            class_names = list(train_data["class_names"])
-        else:
-            n_classes = labels.max() + 1
-            class_names = [f"class_{i}" for i in range(n_classes)]
-        train_classes = set(np.unique(train_data["labels"]).tolist())
-        test_classes = set(np.unique(test_data["labels"]).tolist())
-    else:
-        # Try ImageFolder structure: train/, val/, test/ subdirectories
-        splits_data = {}
-        for split in ["train", "val", "test"]:
-            split_dir = raw_dir / split
-            if not split_dir.exists():
-                continue
-            from torchvision.datasets import ImageFolder
-            ds = ImageFolder(str(split_dir), transform=TRANSFORM)
-            feats, lbls = extract_features(ds, batch_size, device, num_workers)
-            splits_data[split] = (feats, lbls, ds.classes)
+    if not splits_present:
+        raise FileNotFoundError(
+            f"No data found in {raw_dir}.\n"
+            "Expected layout: data/tiered_imagenet_raw/{train,val,test}/<wnid>/*.jpg"
+        )
 
-        if not splits_data:
-            raise FileNotFoundError(
-                f"No data found in {raw_dir}.\n"
-                "Download tiered-ImageNet and place train/test subdirectories there.\n"
-            )
+    wnid_to_global = {wnid: i for i, wnid in enumerate(all_wnids)}
+    n_classes = len(all_wnids)
+    print(f"  Total classes: {n_classes}")
+    for split, _, wnids in splits_present:
+        print(f"    {split}: {len(wnids)} classes")
 
-        all_class_names = splits_data[list(splits_data.keys())[0]][2]
-        features = np.concatenate([v[0] for v in splits_data.values()])
-        labels = np.concatenate([v[1] for v in splits_data.values()])
-        class_names = all_class_names
-        train_classes = set(np.unique(splits_data["train"][1]).tolist()) if "train" in splits_data else set()
-        test_classes = set(np.unique(splits_data["test"][1]).tolist()) if "test" in splits_data else set()
+    # 2) Per-split feature extraction; remap ImageFolder local idx -> global idx
+    all_features, all_labels = [], []
+    seen_indices, unseen_indices = [], []
+    for split, split_dir, wnids in splits_present:
+        ds = ImageFolder(str(split_dir), transform=TRANSFORM)
+        feats, local_lbls = extract_features(ds, batch_size, device, num_workers)
+        # ImageFolder.classes is a sorted list of dir names == wnids
+        local_to_global = np.array(
+            [wnid_to_global[c] for c in ds.classes], dtype=np.int64
+        )
+        global_lbls = local_to_global[local_lbls]
+        all_features.append(feats)
+        all_labels.append(global_lbls)
+        if split == "train":
+            seen_indices = sorted({int(local_to_global[i]) for i in range(len(ds.classes))})
+        elif split == "test":
+            unseen_indices = sorted({int(local_to_global[i]) for i in range(len(ds.classes))})
 
-    n_classes = len(class_names) if class_names else (labels.max() + 1)
-    if not class_names:
-        class_names = [f"class_{i}" for i in range(n_classes)]
+    features = np.concatenate(all_features)
+    labels = np.concatenate(all_labels)
+
+    # 3) Convert wnids to human-readable words for GloVe lookup
+    print("  Mapping wnids -> WordNet lemmas...")
+    class_names = [_wnid_to_word(w) for w in all_wnids]
+    print(f"    e.g. {all_wnids[0]} -> {class_names[0]!r}")
 
     if glove is None:
         glove = load_glove()
-
     embeddings = np.stack([class_name_to_glove(n, glove) for n in class_names])
 
-    # Use the natural train/test split if available
-    if train_classes and test_classes:
-        seen = sorted(train_classes)
-        unseen = sorted(test_classes)
-    else:
+    # 4) Use natural train/test split as seen/unseen
+    if not seen_indices or not unseen_indices:
         n_unseen = n_classes // 4
-        unseen = list(range(n_classes - n_unseen, n_classes))
-        seen = list(range(n_classes - n_unseen))
+        unseen_indices = list(range(n_classes - n_unseen, n_classes))
+        seen_indices = list(range(n_classes - n_unseen))
 
-    save_unified(str(out_dir), features, labels, class_names, embeddings, seen, unseen)
+    save_unified(str(out_dir), features, labels, class_names, embeddings,
+                 seen_indices, unseen_indices)
 
 
 # ===================================================================
@@ -654,6 +711,20 @@ def prepare_inaturalist(
 
     print("=== Preparing iNaturalist ===")
 
+    # iNat 2021 mini directory names encode the full 7-level taxonomy:
+    #   00000_Animalia_Annelida_Clitellata_Haplotaxida_Lumbricidae_Lumbricus_terrestris
+    # Use the genus + species (last two underscore-separated tokens) as the
+    # class name for GloVe lookup, prefixed by higher taxonomy when available.
+    def _dirname_to_taxonomy(dirname: str) -> str:
+        # Strip leading "<idx>_" prefix
+        parts = dirname.split("_", 1)
+        if len(parts) == 2 and parts[0].isdigit():
+            taxa_str = parts[1]
+        else:
+            taxa_str = dirname
+        # Replace underscores with spaces -> "Animalia Annelida ... Lumbricus terrestris"
+        return taxa_str.replace("_", " ").lower()
+
     # Try torchvision INaturalist
     try:
         from torchvision.datasets import INaturalist
@@ -663,24 +734,32 @@ def prepare_inaturalist(
         )
         features, labels = extract_features(dataset, batch_size, device, num_workers)
 
+        # The torchvision INaturalist class indexes by sorted directory names.
+        # `dataset.all_categories` is the sorted list of category dir names.
+        all_dir_names = list(dataset.all_categories)
+
         # Subsample to max_classes if too many
         unique_labels = np.unique(labels)
         if len(unique_labels) > max_classes:
             rng = np.random.RandomState(42)
-            keep_classes = set(rng.choice(unique_labels, size=max_classes, replace=False).tolist())
-            mask = np.isin(labels, list(keep_classes))
+            keep_classes = sorted(
+                rng.choice(unique_labels, size=max_classes, replace=False).tolist()
+            )
+            keep_set = set(keep_classes)
+            mask = np.isin(labels, list(keep_set))
             features = features[mask]
             labels = labels[mask]
-            # Remap labels to 0..max_classes-1
-            old_to_new = {old: new for new, old in enumerate(sorted(keep_classes))}
+            old_to_new = {old: new for new, old in enumerate(keep_classes)}
             labels = np.array([old_to_new[l] for l in labels], dtype=np.int64)
-            unique_labels = np.unique(labels)
+            kept_dir_names = [all_dir_names[i] for i in keep_classes]
+        else:
+            kept_dir_names = all_dir_names
 
-        n_classes = len(unique_labels)
-        class_names = [f"species_{i}" for i in range(n_classes)]
+        n_classes = len(np.unique(labels))
+        class_names = [_dirname_to_taxonomy(d) for d in kept_dir_names]
 
     except Exception:
-        # Fall back to ImageFolder
+        # Fall back to ImageFolder (raw_dir contains the directories directly)
         if not raw_dir.exists():
             raise FileNotFoundError(
                 f"{raw_dir} not found.\n"
@@ -690,23 +769,30 @@ def prepare_inaturalist(
 
         from torchvision.datasets import ImageFolder
         dataset = ImageFolder(str(raw_dir), transform=TRANSFORM)
+        all_dir_names = list(dataset.classes)
 
         # Subsample classes if too many
-        if len(dataset.classes) > max_classes:
+        if len(all_dir_names) > max_classes:
             rng = np.random.RandomState(42)
-            keep_idx = set(rng.choice(len(dataset.classes), size=max_classes, replace=False).tolist())
-            keep_samples = [i for i, (_, lbl) in enumerate(dataset.samples) if lbl in keep_idx]
+            keep_idx = sorted(
+                rng.choice(len(all_dir_names), size=max_classes, replace=False).tolist()
+            )
+            keep_set = set(keep_idx)
+            keep_samples = [i for i, (_, lbl) in enumerate(dataset.samples) if lbl in keep_set]
             from torch.utils.data import Subset
+            kept_dir_names = [all_dir_names[i] for i in keep_idx]
             dataset = Subset(dataset, keep_samples)
+        else:
+            kept_dir_names = all_dir_names
 
         features, labels = extract_features(dataset, batch_size, device, num_workers)
 
-        # Remap labels
+        # Remap labels to 0..n_classes-1
         unique_labels = np.unique(labels)
         n_classes = len(unique_labels)
         old_to_new = {old: new for new, old in enumerate(sorted(unique_labels))}
         labels = np.array([old_to_new[l] for l in labels], dtype=np.int64)
-        class_names = [f"species_{i}" for i in range(n_classes)]
+        class_names = [_dirname_to_taxonomy(d) for d in kept_dir_names]
 
     if glove is None:
         glove = load_glove()

@@ -1,0 +1,49 @@
+#!/bin/bash
+# ============================================================
+#  pace-connect
+#
+#  Open a long-lived SSH master connection to PACE ICE.
+#  Run this ONCE at the start of a working session — approve
+#  the Duo push when prompted. The connection persists for 8
+#  hours (per ControlPersist in ~/.ssh/config).
+#
+#  After this, any `ssh pace-ice <cmd>` or `rsync ... pace-ice:`
+#  call reuses the master and skips Duo entirely.
+#
+#  Status check:   pace-connect status
+#  Disconnect:     pace-connect stop
+# ============================================================
+
+set -e
+
+case "${1:-start}" in
+    start)
+        # Already connected?
+        if ssh -O check pace-ice 2>/dev/null; then
+            echo "✓ Already connected to pace-ice (master active)"
+            exit 0
+        fi
+
+        echo "Opening master connection to pace-ice..."
+        echo "(Approve the Duo push when prompted)"
+        # -fN: background, no command. Master persists per ControlPersist.
+        ssh -fN pace-ice
+        echo "✓ Connected. Master will persist for 8 hours of idle time."
+        echo "  All future ssh/rsync calls to pace-ice will be silent."
+        ;;
+    status)
+        if ssh -O check pace-ice 2>/dev/null; then
+            echo "✓ Master connection is active"
+        else
+            echo "✗ No master connection. Run: pace-connect"
+            exit 1
+        fi
+        ;;
+    stop)
+        ssh -O exit pace-ice 2>/dev/null && echo "✓ Disconnected" || echo "(no active master)"
+        ;;
+    *)
+        echo "Usage: pace-connect [start|status|stop]"
+        exit 1
+        ;;
+esac

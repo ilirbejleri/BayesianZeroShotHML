@@ -84,9 +84,15 @@ def main() -> None:
     if args.ablation_fraction < 1.0:
         train_sub = ablate_training_set(train_sub, args.ablation_fraction, args.seed)
 
+    n_train = len(train_sub)
+    effective_bs = min(args.batch_size, n_train)
+    if effective_bs < args.batch_size:
+        print(f"[INFO] Small ablation: clamping batch_size "
+              f"{args.batch_size} -> {effective_bs} (n_train={n_train})")
     train_loader = torch.utils.data.DataLoader(
-        train_sub, batch_size=args.batch_size, shuffle=True,
-        num_workers=args.num_workers, pin_memory=True, drop_last=True,
+        train_sub, batch_size=effective_bs, shuffle=True,
+        num_workers=args.num_workers, pin_memory=True,
+        drop_last=(n_train > args.batch_size),
     )
 
     class_emb = load_class_embeddings(dataset)
