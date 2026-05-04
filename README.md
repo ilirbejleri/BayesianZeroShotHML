@@ -10,7 +10,7 @@ Maps visual features to Wrapped Normal distributions on the Poincare ball for ze
 
 ## Paper 2: An Empirical Study of Learned Poincare Curvature in Hyperbolic ZSL
 
-Tests whether the c ~ log(N) scaling observed on AwA2 generalizes across diverse image classification datasets. **It does not.** Across six datasets, the per-dataset slope of c vs. log(N) varies from +1.31 (AwA2, R²=0.95) to **-0.17** (SUN397, R²=0.86), changing sign across datasets. Three reproducible response patterns emerge:
+Tests whether the c ~ log(N) scaling observed on AwA2 generalizes across diverse image classification datasets. **It does not.** Across seven datasets, the per-dataset slope of c vs. log(N) varies from +1.31 (AwA2, R²=0.95) to **-0.17** (SUN397, R²=0.86), changing sign across datasets. Three reproducible response patterns emerge:
 
 1. **Monotonic increase** (AwA2): curvature climbs from 1.18 to 6.63
 2. **Rises then plateaus** (CUB-200, Stanford Cars, CIFAR-100): plateaus around c ∈ [1.6, 2.3]
@@ -18,7 +18,7 @@ Tests whether the c ~ log(N) scaling observed on AwA2 generalizes across diverse
 
 The strongest predictor of which pattern a dataset exhibits is the **class-embedding modality** (per-class binary attributes vs. GloVe word vectors), not taxonomy depth. The paper argues learned curvature reports a dataset's available semantic structure as seen through its embedding modality.
 
-**Status:** 6 of 7 datasets complete; tiered-ImageNet still training. See [`paper2/main.pdf`](paper2/main.pdf).
+**Status:** Complete (all 7 datasets). See [`paper2/main.pdf`](paper2/main.pdf).
 
 ## Structure
 
@@ -54,4 +54,4 @@ cluster_instructions.md  # PACE ICE workflow notes
 | Stanford Cars | 196 | GloVe | 300 | 1.58 | Done |
 | iNaturalist | 500 | GloVe (taxonomy) | 300 | 1.08 | Done |
 | SUN397 | 397 | GloVe | 300 | **0.85** | Done |
-| tiered-ImageNet | 608 | GloVe (WordNet) | 300 | (in progress) | Training |
+| tiered-ImageNet | 608 | GloVe (WordNet) | 300 | 1.39 | Done |
