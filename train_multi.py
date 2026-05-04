@@ -148,7 +148,9 @@ def main() -> None:
     # ------------------------------------------------------------------
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    tag = f"{args.model}_{args.dataset}_abl{args.ablation_fraction}_dim{args.embed_dim}"
+    seed_suffix = "" if args.seed == 42 else f"_seed{args.seed}"
+    c0_suffix = "" if args.curvature == 1.0 else f"_c0{args.curvature}"
+    tag = f"{args.model}_{args.dataset}_abl{args.ablation_fraction}_dim{args.embed_dim}{seed_suffix}{c0_suffix}"
     csv_path = log_dir / f"train_{tag}.csv"
     csv_file = open(csv_path, "w", newline="")
     csv_writer = csv.writer(csv_file)

@@ -11,15 +11,30 @@ ABLATION="${ABLATION:-1.0}"
 MODEL="${MODEL:-bayesian}"
 DATA_ROOT="${DATA_ROOT:-data}"
 EPOCHS="${EPOCHS:-200}"
+SEED="${SEED:-42}"
+C0="${C0:-1.0}"
 
 echo "=== Curvature Study Training ==="
 echo "  Dataset:  $DATASET"
 echo "  Ablation: $ABLATION"
 echo "  Model:    $MODEL"
+echo "  Seed:     $SEED"
+echo "  c0:       $C0"
 echo "  Device:   cuda"
 echo ""
 
-TAG="${MODEL}_${DATASET}_abl${ABLATION}_dim64"
+# Match the suffix logic in train_multi.py: defaults are silent in the tag.
+if [ "$SEED" = "42" ]; then
+    SEED_SUFFIX=""
+else
+    SEED_SUFFIX="_seed${SEED}"
+fi
+if [ "$C0" = "1.0" ]; then
+    C0_SUFFIX=""
+else
+    C0_SUFFIX="_c0${C0}"
+fi
+TAG="${MODEL}_${DATASET}_abl${ABLATION}_dim64${SEED_SUFFIX}${C0_SUFFIX}"
 
 # Train
 python3 train_multi.py \
@@ -28,6 +43,8 @@ python3 train_multi.py \
     --ablation_fraction "$ABLATION" \
     --model "$MODEL" \
     --epochs "$EPOCHS" \
+    --seed "$SEED" \
+    --curvature "$C0" \
     --device cuda
 
 # Evaluate the final checkpoint

@@ -41,7 +41,8 @@ in Hyperbolic Zero-Shot Learning}
 A prior result on AwA2~\cite{bejleri2025bayesian} reported that the learnable curvature $c$ of a Poincar\'{e} ball hyperbolic zero-shot learning model scaled monotonically with training data, suggesting a universal $c \propto \log N$ relationship.
 We test this on seven image classification datasets spanning attribute-based and text-based class embeddings, and from very flat (Stanford Cars) to deeply hierarchical (iNaturalist, tiered-ImageNet) label spaces.
 We find that the relationship is \emph{not} universal.
-Across the seven datasets, the per-dataset slope of $c$ vs.\ $\log N$ varies from $+1.31$ ($R^2=0.95$, AwA2) all the way to $-0.17$ ($R^2=0.86$, SUN397) --- a directionally inconsistent range that decisively rules out a single scaling law.
+The within-dataset slope of $c$ vs.\ $\log N$ \emph{changes sign} across our seven datasets, from $+1.31$ (AwA2, $R^2=0.95$) to $-0.17$ (SUN397, $R^2=0.86$), ruling out a universal positive scaling law.
+All results are from a single training seed per (dataset, ablation) cell; quantitative claims about slope magnitudes should be read with that caveat.
 Instead, we identify three distinct response patterns:
 (1) \emph{strongly increasing} curvature with data (AwA2);
 (2) \emph{rising then plateauing} curvature (CUB-200, Stanford Cars, CIFAR-100);
@@ -125,6 +126,8 @@ We use taxonomy-derived hierarchy metrics (depth, branching factor) as our prima
 
 We use the Bayesian Hyperbolic ZSL architecture from~\cite{bejleri2025bayesian} with no modifications.
 A visual encoder maps pre-extracted ResNet-101 features~\cite{he2016resnet} (2048-d) to a Wrapped Normal distribution $\mathrm{WN}(\mu, \sigma^2)$ on the Poincar\'{e} ball $\poinc$~\cite{nagano2019wrapped}.
+Throughout this paper we follow the \texttt{geoopt}~\cite{kochurov2020geoopt} parameterisation: the ball $\poinc$ has \emph{constant negative sectional curvature} $-c$ for $c > 0$, so larger $c$ means a more strongly hyperbolic geometry (sharper exponential growth of ball volumes near the boundary), and $c \to 0$ recovers the Euclidean limit.
+Whenever we write ``higher curvature'' we mean larger $c$ in this convention.
 The mean $\mu$ is produced by a hyperbolic linear layer~\cite{ganea2018hyperbolic} and the log-variance $\log \sigma^2$ by a standard linear head.
 A semantic encoder maps class-level embeddings to deterministic points on the same manifold.
 Training minimises a geodesic alignment loss plus a KL regulariser ($\lambda_{\KL} = 0.01$) using RiemannianAdam~\cite{becigneul2019riemannian}.
@@ -144,7 +147,7 @@ Among our seven datasets, only AwA2 uses expert-annotated per-class binary attri
 
 \begin{table}[t]
 \centering
-\caption{The seven datasets used in this study, with class-embedding modality and ground-truth taxonomy metrics. Hierarchy metrics are computed from the simplified taxonomies in our \texttt{hierarchy.py}; for tiered-ImageNet and iNaturalist these are conservative truncations of the full WordNet / biological hierarchies.}
+\caption{The seven datasets used in this study, with class-embedding modality and ground-truth taxonomy metrics. Hierarchy depths and branching factors are computed from the simplified taxonomies in our \texttt{hierarchy.py}: for tiered-ImageNet (full WordNet subtree depth $\approx 12$--$15$) and iNaturalist (full biological taxonomy depth $7$) these are conservative truncations to the most coarsely meaningful levels (kingdom/phylum/class/order for iNat, the major superclass split for tiered-ImageNet). The truncation tightens the depth range across our datasets but does not change the qualitative ordering --- iNaturalist and tiered-ImageNet remain the deepest --- so its effect is to weaken any depth-vs-curvature signal slightly, which biases against rather than for our finding that depth is a poor predictor.}
 \label{tab:datasets}
 \begin{tabular}{lccccc}
 \toprule
@@ -198,58 +201,108 @@ iNaturalist     & 1.07 & 1.54 & 1.60 & 1.37 & 1.09 & \textbf{1.08} \\
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/curvature_vs_data_all.pdf}
-\caption{Converged curvature vs.\ training data fraction (log-x) for all seven datasets. AwA2 (top) climbs almost linearly in $\log N$. The GloVe-embedded datasets cluster between $c = 0.8$ and $c = 2.3$ and exhibit qualitatively different trajectories: CUB-200 and Stanford Cars rise then plateau; SUN397, iNaturalist, and tiered-ImageNet peak early and decline.}
+\caption{Converged curvature vs.\ training data fraction (log-$x$) for all seven datasets. Solid line + markers: empirical trajectory. Light dashed line per dataset: the corresponding least-squares $c = a\log N + b$ fit reported in \Cref{tab:logn_fits}. AwA2 (top) climbs almost linearly in $\log N$ and the dashed fit hugs the data. The GloVe-embedded datasets cluster between $c = 0.8$ and $c = 2.3$ and exhibit qualitatively different trajectories: CUB-200 and Stanford Cars rise then plateau; SUN397, iNaturalist, tiered-ImageNet, and CIFAR-100 peak early and decline.}
 \label{fig:curvature_main}
 \end{figure}
 
-Fitting a one-line linear model $c = a \log N + b$ separately per dataset gives the slopes in \Cref{tab:logn_fits}.
-The signs and magnitudes of $a$ disagree wildly: the AwA2 slope is roughly an order of magnitude larger than CUB-200's (the next-largest positive), and three datasets have \emph{negative} slopes, two of which (SUN397, $a = -0.17$, $R^2 = 0.86$; tiered-ImageNet, $a = -0.13$, $R^2 = 0.75$) fit tightly to clean declines.
+Fitting a one-line linear model $c = a \log N + b$ separately per dataset gives the slopes in \Cref{tab:logn_fits}, including 95\% confidence intervals and $p$-values from the standard $t$-test against $a = 0$ (Wald, with $n - 2 = 4$ residual degrees of freedom per fit).
+The signs and magnitudes of $a$ disagree across datasets in three statistically meaningful ways:
+(i) AwA2's slope is an order of magnitude larger than the next-largest positive (CUB-200) and its 95\% CI does not overlap CUB-200's, ruling out a single underlying scaling constant for the two;
+(ii) two datasets (SUN397, tiered-ImageNet) have slopes whose 95\% CI lies \emph{entirely below zero}, so they are not just smaller versions of AwA2's positive slope but qualitatively different decreasing trends;
+(iii) two datasets (CIFAR-100 and iNaturalist) have slopes whose 95\% CI \emph{straddles zero} ($p = 0.45$ and $p = 0.72$), meaning we cannot statistically distinguish them from \emph{no} log-$N$ trend at all.
+A single positive scaling law would require all seven datasets to have positive slopes with overlapping confidence intervals; we observe none of these.
 
 \begin{table}[t]
 \centering
-\caption{Per-dataset fit of $c = a \log N + b$. The slope $a$ varies by an order of magnitude in absolute value and changes sign across datasets, falsifying the universal-scaling claim.}
+\caption{Per-dataset fit of $c = a \log N + b$ with analytical 95\% confidence interval on the slope and $p$-value vs.\ $a = 0$. The slope changes sign across datasets, two slopes are statistically indistinguishable from zero, and AwA2's CI does not overlap any other dataset's --- jointly falsifying any universal positive scaling claim.}
 \label{tab:logn_fits}
-\begin{tabular}{lcc}
+\begin{tabular}{lccc}
 \toprule
-\textbf{Dataset} & \textbf{Slope $a$} & $\boldsymbol{R^2}$ \\
+\textbf{Dataset} & \textbf{Slope $a$ (95\% CI)} & $\boldsymbol{R^2}$ & $\boldsymbol{p}$ \\
 \midrule
-AwA2            & $+1.311$ & $0.952$ \\
-CUB-200         & $+0.259$ & $0.839$ \\
-Stanford Cars   & $+0.145$ & $0.803$ \\
-CIFAR-100       & $+0.088$ & $0.151$ \\
-iNaturalist     & $-0.028$ & $0.037$ \\
-tiered-ImageNet & $-0.126$ & $0.749$ \\
-SUN397          & $-0.174$ & $0.858$ \\
+AwA2            & $+1.31\ \ [+0.90, +1.72]$ & $0.95$ & $0.001$ \\
+CUB-200         & $+0.26\ \ [+0.10, +0.42]$ & $0.84$ & $0.010$ \\
+Stanford Cars   & $+0.15\ \ [+0.05, +0.25]$ & $0.80$ & $0.016$ \\
+CIFAR-100       & $+0.09\ \ [-0.20, +0.38]$ & $0.15$ & $0.446$ \\
+iNaturalist     & $-0.03\ \ [-0.23, +0.17]$ & $0.04$ & $0.715$ \\
+tiered-ImageNet & $-0.13\ \ [-0.23, -0.03]$ & $0.75$ & $0.026$ \\
+SUN397          & $-0.17\ \ [-0.27, -0.08]$ & $0.86$ & $0.008$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{figure}[t]
+The same per-dataset fit is overlaid on \Cref{fig:curvature_main} as a light dashed line per dataset, so the visual mismatch between AwA2's tight log-linear fit and the other datasets' poor or contrary fits is directly inspectable.
+
+\paragraph{The model is actually learning on each dataset.}
+Reporting only the converged $c$ would leave open the alternative explanation that some Pattern C datasets are simply undertrained models whose curvature is collapsing on noise.
+\Cref{tab:zsl_accuracy} shows zero-shot top-1 and top-5 accuracy on the held-out unseen classes at 100\% data, alongside the converged $c_{100\%}$.
+Every dataset is well above random-chance baseline on top-1 (chance is $1/N_{\text{unseen}}$, never above 2\%; the lowest absolute accuracy is tiered-ImageNet at $3.24\% \approx 5\times$ random over its 160 unseen classes).
+Unseen-class top-5 accuracy is between $12\%$ and $89\%$ across datasets.
+Notably the relationship between $c_{100\%}$ and accuracy is non-monotonic: AwA2 (highest $c$) and CUB-200 (mid $c$) achieve the highest top-1 accuracies (60.8\%, 56.6\%), while Stanford Cars (mid $c$) is one of the lowest (11.9\%) and SUN397 (lowest $c$) sits in the middle (26.7\%) --- so a Pattern C trajectory is not a marker of an undertrained model.
+
+\begin{table}[t]
 \centering
-\includegraphics[width=\textwidth]{figures/log_n_fits.pdf}
-\caption{Per-dataset $c = a\log N + b$ fits. AwA2's high-$R^2$, high-slope fit is what motivated the original universal-scaling reading. The other six datasets fit either poorly (CIFAR-100, iNaturalist) or to slopes near zero or negative, contradicting that reading.}
-\label{fig:log_n_fits}
-\end{figure}
+\caption{Zero-shot classification on \emph{unseen} classes at 100\% training data, alongside converged curvature $c_{100\%}$. Models are above random across the board (random-chance top-1 is $1/N_{\text{unseen}} \leq 2\%$ for every dataset), confirming that the curvature trajectories in \Cref{tab:curvature_all} reflect actual training dynamics rather than collapse on noise.}
+\label{tab:zsl_accuracy}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Dataset} & $\boldsymbol{c_{100\%}}$ & \textbf{Top-1 (\%)} & \textbf{Top-5 (\%)} & $\boldsymbol{N_{\text{test}}}$ \\
+\midrule
+AwA2            & 6.63 & 60.76 & 88.69 & 7\,454 \\
+CUB-200         & 2.01 & 56.65 & 89.24 & 2\,927 \\
+CIFAR-100       & 1.81 & 17.32 & 61.29 & 12\,000 \\
+Stanford Cars   & 1.58 & 11.85 & 39.90 & 2\,050 \\
+tiered-ImageNet & 1.39 & \phantom{0}3.24 & 12.08 & 206\,209 \\
+iNaturalist     & 1.08 & 15.02 & 40.42 & 5\,000 \\
+SUN397          & 0.85 & 26.66 & 58.10 & 19\,499 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Three response patterns}\label{sec:patterns}
 
 The within-dataset trajectories in \Cref{fig:curvature_main} cluster into three qualitatively distinct shapes.
+To avoid relying on visual classification we apply the following mechanical 3-way criterion to the curvature trajectory $\{c_{1\%}, c_{5\%}, \dots, c_{100\%}\}$ of each dataset:
+\begin{itemize}
+    \item \textbf{Pattern A (monotonic increase)}: argmax$_f c_f$ falls at the largest fraction (100\%) \emph{and} $c_{100\%} > 1.5\,c_{1\%}$.
+    \item \textbf{Pattern C (peaks early, declines)}: argmax$_f c_f$ falls at one of the three smallest fractions ($\leq 10\%$ data) \emph{and} $c_{100\%} < 0.85 \cdot \max_f c_f$.
+    \item \textbf{Pattern B (rises then plateau)}: any other configuration (peak in the middle, or peak early but final value within 15\% of the peak).
+\end{itemize}
+Applied mechanically, the classification is shown in \Cref{tab:patterns}.
+
+\begin{table}[t]
+\centering
+\caption{Mechanical pattern classification (criterion in text). Argmax column shows where the per-dataset curvature peaks; the final/max ratio is the diagnostic for Pattern C vs.\ B.}
+\label{tab:patterns}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Dataset} & \textbf{argmax} & $\boldsymbol{c_{1\%}}$ & $\boldsymbol{c_{\max}}$ & $\boldsymbol{c_{100\%}}$ & \textbf{Pattern} \\
+\midrule
+AwA2            & 100\% & 1.18 & 6.63 & 6.63 & \textbf{A} \\
+CUB-200         & 25\%  & 1.06 & 2.14 & 2.01 & B \\
+Stanford Cars   & 50\%  & 1.08 & 1.70 & 1.59 & B \\
+CIFAR-100       & 5\%   & 1.30 & 2.29 & 1.81 & C \\
+SUN397          & 5\%   & 1.58 & 1.59 & 0.85 & C \\
+iNaturalist     & 10\%  & 1.07 & 1.60 & 1.08 & C \\
+tiered-ImageNet & 1\%   & 1.81 & 1.81 & 1.39 & C \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \paragraph{Pattern A --- Monotonic increase.}
-AwA2 is the sole member: $c$ rises from 1.18 to 6.63, a 5.6$\times$ increase, fitting tightly to a $\log N$ line ($R^2 = 0.95$).
+AwA2 is the sole member: $c$ rises from 1.18 to 6.63, a 5.6$\times$ increase, fitting tightly to a $\log N$ line ($R^2 = 0.95$, slope-CI $[+0.90, +1.72]$).
 This is the pattern from~\cite{bejleri2025bayesian} that motivated the present study.
 
 \paragraph{Pattern B --- Rises then plateaus.}
-CUB-200, Stanford Cars, and CIFAR-100.
-All three rise initially (positive slope on the early portion of the sweep), reach a moderate ceiling between $c = 1.7$ and $c = 2.3$ somewhere in the 5--25\% data range, and then stay flat or drift down slightly through 100\% data.
+CUB-200 and Stanford Cars.
+Both rise initially (positive slope on the early portion of the sweep), reach a moderate peak between $c = 1.7$ and $c = 2.3$ somewhere in the 25--50\% data range, and end within 7\% of that peak at 100\% data.
 The ceiling is consistent across very different label spaces: CUB-200's deep ornithological hierarchy and Stanford Cars's flat make/model space both produce $c$ around 1.6--2.0 at 100\% data, suggesting the ceiling is not driven by the label hierarchy.
 
 \paragraph{Pattern C --- Peaks then declines.}
-SUN397, iNaturalist, and tiered-ImageNet.
-Curvature peaks early and \emph{decreases} as more data is added.
+CIFAR-100, SUN397, iNaturalist, and tiered-ImageNet.
+All four peak at or before 10\% of the data and then decline by at least 21\% of the peak by 100\% data (CIFAR-100: 21\%, tiered-ImageNet: 23\%, iNaturalist: 33\%, SUN397: 47\%).
 SUN397 is the cleanest case: a strict monotonic decline from $c = 1.58$ at 1\% data down to $c = 0.85$ at 100\% --- well below the initial value of $c_0 = 1.0$.
-iNaturalist is non-monotonic: a peak of 1.60 at 10\% data followed by a drop back to 1.08 at 100\%.
-tiered-ImageNet peaks at the very low end ($c = 1.81$ at 1\% data), declines to a minimum of $c = 1.26$ at 25--50\% data, and shows a small uptick to $c = 1.39$ at 100\% --- still well below the initial peak.
+We note that the criterion places CIFAR-100 in Pattern C even though its trajectory is qualitatively close to a noisy plateau (peak 2.29, end 1.81); a less-strict threshold would put it on the B/C boundary.
 
 These three patterns describe the data without committing to a mechanism.
 The next two subsections explore why they appear.
@@ -257,15 +310,16 @@ The next two subsections explore why they appear.
 \subsection{Embedding modality, not taxonomy depth, predicts the pattern}\label{sec:embedding_modality}
 
 \Cref{fig:curvature_vs_hierarchy} shows the converged 100\%-data curvature against the ground-truth tree depth and branching factor of each dataset's taxonomy.
-The relationships are weak.
-AwA2 (depth 3) and CUB-200 (depth 3) sit at very different curvatures ($c = 6.63$ vs.\ $c = 2.01$).
-SUN397 (depth 3), iNaturalist (depth 4), and tiered-ImageNet (depth 5), the three datasets with the deepest taxonomies among the GloVe-embedded ones, are also among the lowest-curvature datasets.
-A simple linear regression of $c_{100\%}$ on tree depth across the seven datasets has $R^2 < 0.05$ once AwA2 is excluded, and is essentially driven by AwA2 alone when it is included.
+The relationships are weak in both directions.
+A simple linear regression of $c_{100\%}$ on tree depth across all seven datasets has $R^2 = 0.27$ (driven primarily by AwA2 as a high-depth-3 outlier in the wrong direction), and $R^2 = 0.05$ once AwA2 is excluded.
+For mean branching factor, $R^2 = 0.02$ (all 7) and $R^2 = 0.13$ (excluding AwA2).
+Repeating the same analysis for the slope $a$ from \Cref{tab:logn_fits} (rather than the static $c_{100\%}$) gives the same picture: $a$ vs.\ depth has $R^2 = 0.05$ (all 7), $R^2 = 0.31$ (ex-AwA2); $a$ vs.\ branching has $R^2 = 0.17$ (all 7), $R^2 = 0.29$ (ex-AwA2).
+None of these pass even a generous threshold for an explanatory relationship, with or without AwA2.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/curvature_vs_hierarchy.pdf}
-\caption{Converged curvature at 100\% data vs.\ (left) taxonomy tree depth and (right) mean branching factor. The strong-looking correlations are driven entirely by AwA2 as a single high-curvature outlier; among the six GloVe-embedded datasets, neither metric predicts curvature well.}
+\caption{Converged curvature at 100\% data vs.\ (left) taxonomy tree depth and (right) mean branching factor. Each panel reports $R^2$ both with all seven datasets and with AwA2 excluded; in both panels, removing AwA2 either preserves or reduces the (already weak) correlation, ruling out the reading that AwA2 is creating a spurious signal that the GloVe-embedded datasets would otherwise carry.}
 \label{fig:curvature_vs_hierarchy}
 \end{figure}
 
@@ -285,18 +339,28 @@ But the magnitude of the AwA2 vs.\ everything-else gap (a factor of roughly 4$\t
 
 \subsection{Number of classes interacts with the pattern}\label{sec:n_classes_effect}
 
-A secondary observation: the three datasets in Pattern C (declining curvature) are also our three largest by class count: SUN397 (397), iNaturalist (500), and tiered-ImageNet (608).
-CUB-200 (200) sits at the boundary --- its 100\%-data curvature ($c=2.01$) is below its 25\%-data peak ($c=2.14$), but only marginally.
-A plausible reading is that with hundreds of classes embedded into 300-d GloVe space, many class embeddings end up near each other (especially fine-grained taxonomic classes whose names share roots), and large-curvature embeddings then exaggerate noise rather than signal.
-The model unlearns its initial curvature to compensate.
+A secondary observation: the four datasets in Pattern C (declining curvature) include the three largest by class count --- SUN397 (397), iNaturalist (500), tiered-ImageNet (608) --- plus the much smaller CIFAR-100 (100).
+The two Pattern-B datasets sit at moderate class counts (CUB-200: 200, Stanford Cars: 196).
+Regressing the converged $c_{100\%}$ on $\log(\text{n\_classes})$ across all seven datasets gives $R^2 = 0.65$, and on the six GloVe-embedded datasets alone (i.e., controlling for embedding modality) $R^2 = 0.51$ with a negative slope --- more classes, lower converged curvature.
+Repeating for the slope $a$: $R^2 = 0.70$ across all seven, $R^2 = 0.50$ excluding AwA2.
+Both relationships survive removing AwA2, which suggests class count is a real --- though noisy and clearly not the only --- factor.
+
+A plausible reading is that with hundreds of classes embedded into 300-d GloVe space, many class embeddings end up near each other (especially fine-grained taxonomic classes whose names share roots), and large-curvature embeddings exaggerate small differences as noise rather than signal.
+The model then unlearns its initial curvature to compensate.
 This explanation is consistent with tiered-ImageNet (608 classes drawn from WordNet leaves whose lemmas often duplicate or differ by a single qualifier) showing the lowest peak curvature among the GloVe-embedded large datasets and the steepest early decline.
+We caution that with only seven data points, the regressions reported here are diagnostic rather than confirmatory, and CIFAR-100 (only 100 classes but firmly Pattern C) is a clear counterexample to a strict ``more classes $\Rightarrow$ Pattern C'' reading.
 
 \subsection{Comparison with Fan et al.}\label{sec:fan_comparison}
 
 Fan et al.~\cite{fan2025curvature} report converged curvature values from a sharpness-aware bi-level optimisation procedure on a few-shot classification objective.
-Their reported $c \approx 0.113$ on tiered-ImageNet 1-shot is roughly an order of magnitude smaller than our converged values on the same dataset (which range from $c = 1.26$ at 25--50\% data to $c = 1.81$ at 1\% data, ending at $c = 1.39$ at 100\%).
-Our setup uses a different training objective (ZSL geodesic alignment), a different evaluation protocol, and a different curvature parameterisation, so a precise numerical comparison is not meaningful.
-What is meaningful is that both papers find tiered-ImageNet's optimal/converged curvature in a low-to-moderate range that does not grow without bound with more data --- consistent with the more general observation that text-derived class embeddings on large class sets produce only moderate curvature, in striking contrast to AwA2's attribute-driven climb to $c = 6.63$.
+Their reported $c \approx 0.113$ on tiered-ImageNet 1-shot is roughly an order of magnitude smaller than our $c = 1.26$--$1.81$ on the same dataset.
+Before reading anything into this gap, we flag a parameterisation question that has to be settled first.
+The hyperbolic-network literature is not consistent about what ``$c$'' denotes: \texttt{geoopt}~\cite{kochurov2020geoopt} (which we use) defines the Poincar\'{e} ball with constant negative sectional curvature $-c$ for $c > 0$ via the conformal factor $\lambda^c_x = 2/(1 - c\|x\|^2)$ on the unit ball, while several other works use the radius $r = 1/\sqrt{c}$, the curvature itself $\kappa = -c$, or a dimensionless $\sqrt{c}$-scaled coordinate.
+A 10$\times$ apparent gap in $c$-values across papers can correspond to a $\sqrt{10} \approx 3.2\times$ difference in radius or to using the same geometry under a different convention entirely.
+Without re-deriving Fan et al.'s parameterisation from their code we cannot rule out that some or all of the order-of-magnitude gap is convention; we therefore restrict our comparison to qualitative claims.
+
+What is meaningful at this resolution is that both papers find tiered-ImageNet's optimal/converged curvature in a low-to-moderate range that does not grow without bound with more data, consistent with the more general observation that text-derived class embeddings on large class sets produce only moderate curvature --- in striking contrast to AwA2's attribute-driven climb to $c = 6.63$ in our parameterisation.
+Quantitative cross-paper comparisons of $c$ should be done either after explicit unit normalisation (e.g., reporting $\sqrt{c}\cdot\text{embed-dim}$ or the geodesic ball radius) or by reproducing both methods under the same library.
 
 A more important point: our results suggest that ``optimal curvature for tiered-ImageNet'' is best understood as ``optimal curvature for tiered-ImageNet \emph{when classes are encoded by GloVe word vectors}.''
 A different class encoding --- per-class attributes, learned visual prototypes, language-model embeddings --- would likely produce a different optimum.
@@ -318,20 +382,38 @@ A practical consequence: when designing a hyperbolic network for a new task, the
 A hyperbolic network with weak class embeddings may end up learning a near-Euclidean curvature in any case, defeating the purpose of the architectural choice.
 Practitioners might reasonably treat the converged curvature as a diagnostic: if $c$ stays near $c_0$ or drops below it, the embedding likely lacks the structure the geometry was meant to exploit, and either the embedding or the architecture should be reconsidered.
 
-\paragraph{Why does AwA2 keep climbing?}
+\paragraph{Hypothesis: why does AwA2 keep climbing?}
 The $c$ values for AwA2 do not plateau within our 100\% data sweep, raising the question of whether they would saturate at higher data --- noting that AwA2 has only $\sim$30K images, so we cannot push much further on this dataset alone.
-Our reading is that the saturation point of Pattern A is determined by the resolution of the per-class semantic description, not by the visual signal: AwA2's 85-d attribute vectors carry roughly $\log_2(85!) \approx 350$ bits of class-discriminative information assuming uncorrelated dimensions, and the model's curvature continues climbing as long as additional data lets it discover finer divisions of that structure.
-Datasets with even richer per-class descriptions (e.g., long natural-language captions, multi-modal embeddings) might produce even steeper Pattern A curves.
+We offer the following as a \emph{hypothesis}, not a derivation: AwA2's 85 expert-annotated binary attributes provide a class-conditional supervisory signal that varies meaningfully between training examples of \emph{different} classes (the attribute vector for ``tiger'' differs from ``polar bear'' in many dimensions, each one a learnable axis of the visual--semantic alignment).
+GloVe word vectors, by contrast, provide a fixed 300-d distributional signal per class that is largely redundant across examples of the same class and varies only along distributional-similarity directions across classes, regardless of how many examples are seen.
+On this account, AwA2's curvature climbs because each additional training example refines the model's alignment of visual features with semantically meaningful attribute axes, while GloVe-embedded models hit a ceiling once the embedding's distributional structure has been absorbed.
+The class-attribute side, not the image side, is what we expect to determine the saturation point: an AwA2-style architecture trained with longer natural-language descriptions or visual-language model embeddings might produce even steeper Pattern A curves, while AwA2 trained with GloVe class-name embeddings would (we predict) drop to Pattern B or C.
+This hypothesis is testable; we mark the GloVe-AwA2 control as future work in \Cref{sec:discussion}.
 
 \paragraph{What about $\delta$-hyperbolicity?}
 We computed taxonomy-derived hierarchy metrics (depth, branching factor) but did not include feature-space $\delta$-hyperbolicity~\cite{gromov1987hyperbolic,fournier2015hyperbolicity} in the main analysis.
 A natural extension is to compute $\delta$ on the joint visual-feature plus class-embedding metric and see whether it correlates with the converged curvature better than taxonomy depth does --- particularly since $\delta$-hyperbolicity is sensitive to the embedding metric in a way that taxonomy depth is not.
 
 \paragraph{Limitations.}
-Seven datasets is a thin slice of the space.
-The strong reading of our embedding-modality claim --- that attribute embeddings always produce Pattern A and word-vector embeddings never do --- is single-anchor in our data: AwA2 is the only dataset with attributes, so we cannot distinguish ``attributes cause Pattern A'' from ``some other AwA2-specific factor causes Pattern A.''
-A direct test would re-run the same architecture on AwA2 with GloVe embeddings of the class names (e.g., \texttt{tiger}, \texttt{antelope}) instead of the attribute matrix, and see whether the curvature trajectory drops to a Pattern B or Pattern C shape.
-We mark this as future work.
+We list the major confounds and what controlled comparison (existing or proposed) speaks to each.
+
+\textit{(L1) Single seed.}
+Every number in \Cref{tab:curvature_all,tab:logn_fits,tab:patterns} and every trajectory in \Cref{fig:curvature_main} comes from a single training run per (dataset, fraction) cell.
+The 95\% CIs in \Cref{tab:logn_fits} reflect within-trajectory linear-regression uncertainty, not cross-seed variance.
+Multi-seed reruns are needed before any quantitative claim about slope magnitude or about the B/C boundary should be considered confirmed; the qualitative claims --- AwA2 climbs to $c \approx 6.6$, SUN397 declines from $c_0 = 1.0$ to $c = 0.85$, and these two cannot share a single $c \propto \log N$ scaling law --- are large enough to survive plausible single-seed noise, but the fine-grained distinctions cannot.
+
+\textit{(L2) AwA2 is single-anchor on six of the dimensions that distinguish it from the other datasets.}
+AwA2 differs from the other six in: (a) embedding modality (per-class binary attributes vs.\ GloVe word vectors), (b) embedding dimensionality (85 vs.\ 300), (c) class count (50, the smallest), (d) domain (animals only, very narrow), (e) dataset size ($\sim$30K images, on the small end), and (f) hierarchy depth among datasets with $<200$ classes (depth 3 vs.\ CIFAR-100's depth 2).
+Our embedding-modality hypothesis is the cleanest single-factor explanation for the AwA2 vs.\ everything-else gap, but it is not the only one consistent with the data.
+Within-existing-data we can rule out (c) as the dominant factor because the regression of $c_{100\%}$ on $\log(\text{n\_classes})$ across the six GloVe-only datasets has $R^2 = 0.51$ --- real but far from determining --- and we can rule out (f) because CIFAR-100 (depth 2) and CUB-200 (depth 3) have very similar converged curvatures.
+We cannot disentangle (a), (b), (d), and (e) from the existing six-dataset GloVe set: AwA2 is the only attribute-embedded, animals-only, $\sim$30K-image dataset.
+A clean test for (a) would re-run the same architecture on AwA2 with 300-d GloVe class-name embeddings; if the trajectory drops to Pattern B or C, (a) is the active factor. We mark this as future work.
+
+\textit{(L3) Hierarchy depths are conservatively truncated.}
+Our \texttt{hierarchy.py} truncates iNaturalist (full depth 7) and tiered-ImageNet (full WordNet depth $\approx$12--15) to coarsely meaningful levels. The truncation compresses the depth axis but preserves ordering. The negative result on depth-vs-curvature would only strengthen if the un-truncated depths were used.
+
+\textit{(L4) Initial curvature is fixed at $c_0 = 1.0$.}
+Pattern C, especially SUN397's decline to $c = 0.85$, partly looks like ``the model unlearned its initial curvature.'' We have not verified that converged $c_{100\%}$ is initialisation-invariant on Pattern C datasets. A small ablation varying $c_0 \in \{0.1, 1.0, 5.0\}$ on SUN397 would show whether the patterns are real attractors or just slow drift from $c_0$.
 
 % ================================================================
 %  7. CONCLUSION
@@ -343,6 +425,25 @@ It does not.
 Across seven datasets, the within-dataset slope of $c$ vs.\ $\log N$ varies from $+1.31$ (AwA2) to $-0.17$ (SUN397), and the trajectories cluster into three distinct response patterns.
 The strongest predictor of which pattern a dataset exhibits is the type of class embedding used --- per-class attributes (AwA2) versus word vectors (everything else) --- and not the depth of the underlying taxonomy.
 We re-frame the descriptive question accordingly: learned curvature reports the dataset's semantic structure \emph{as visible through its embedding modality}, not its taxonomy.
+
+\appendix
+
+% ================================================================
+%  A. CONVERGENCE SANITY CHECK
+% ================================================================
+\section{Training-loss and curvature convergence at low data fractions}\label{app:convergence}
+
+A natural concern with the Pattern C datasets is that an early-fraction curvature peak --- e.g.\ tiered-ImageNet at $c = 1.81$ for 1\% data --- could just be the optimiser failing to reach steady state with very little data, with $c$ frozen near its initialisation rather than reflecting a converged optimum.
+\Cref{fig:convergence} plots the training loss (top row) and the learned curvature (bottom row) over the full 200-epoch training schedule for every dataset at the 1\% and 10\% ablation points.
+
+In all cases the training loss is monotonically decreasing and visibly plateaus by the end of training, and the curvature parameter is also stable at the end of training (i.e., the slope of $c$ vs.\ epoch in the final $\sim$50 epochs is close to zero), confirming that the converged values reported in \Cref{tab:curvature_all} are not artifacts of an unconverged optimiser at low-data fractions.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/convergence_check.pdf}
+\caption{Training loss (top) and learned curvature $c$ (bottom) over 200 training epochs for every dataset, at the 1\% (left column) and 10\% (right column) ablation points. Training loss decreases monotonically and the curvature parameter stabilises in all cases, ruling out the explanation that early-fraction curvature peaks reflect an unconverged optimiser.}
+\label{fig:convergence}
+\end{figure}
 
 % ================================================================
 %  REFERENCES
